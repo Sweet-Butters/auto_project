@@ -1,8 +1,10 @@
-"""Git-backed state for agents.
+"""Project-isolated state, backed by JSON files under `<cwd>/state/`.
 
-Each agent gets its own subdirectory under `state/` at the repo root.
-Reads return defaults if the file doesn't exist; writes overwrite.
-The CI workflow is responsible for committing changes after a run.
+When a project installs `auto_project` as a dependency and runs an agent
+from its own repo root, `Path.cwd() / "state"` resolves to that project's
+state directory. Two projects on the same machine never share files.
+
+Stable API — additions OK, signatures must stay compatible.
 """
 
 from __future__ import annotations
@@ -11,12 +13,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-# repo root = three levels above this file: state.py -> auto_project -> src -> repo
-_STATE_DIR = Path(__file__).resolve().parents[2] / "state"
-
 
 def _path(agent: str, key: str) -> Path:
-    return _STATE_DIR / agent / f"{key}.json"
+    return Path.cwd() / "state" / agent / f"{key}.json"
 
 
 def get(agent: str, key: str, default: Any = None) -> Any:

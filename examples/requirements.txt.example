@@ -1,0 +1,5 @@
+# Pin auto_project to a specific tag for stability.
+# Bump the tag deliberately when you want framework updates.
+git+https://github.com/Sweet-Butters/auto_project.git@v0.1.0
+
+# add project-specific deps below

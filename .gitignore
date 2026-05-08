@@ -25,6 +25,10 @@ htmlcov/
 httpswww.youtube.com*.txt
 *.transcript.txt
 
+# private projects living as nested repos under this folder
+# (each has its own .git pointing to a private GitHub repo)
+*_project/
+
 .vscode/
 .idea/
 *.swp
