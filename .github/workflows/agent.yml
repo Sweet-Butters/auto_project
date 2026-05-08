@@ -1,0 +1,82 @@
+name: agents
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # hourly UTC; bump if you want less often
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: 'agent name (or "all")'
+        default: 'all'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agents
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      agents: ${{ steps.list.outputs.agents }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          INPUT_AGENT="${{ github.event.inputs.agent }}"
+          if [ -n "$INPUT_AGENT" ] && [ "$INPUT_AGENT" != "all" ]; then
+            AGENTS="[\"$INPUT_AGENT\"]"
+          else
+            AGENTS=$(ls src/auto_project/agents/*.py 2>/dev/null \
+              | xargs -n1 basename \
+              | grep -v '^__' \
+              | sed 's/\.py$//' \
+              | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          fi
+          echo "agents=$AGENTS" >> "$GITHUB_OUTPUT"
+          echo "discovered: $AGENTS"
+
+  run:
+    needs: discover
+    if: needs.discover.outputs.agents != '[]' && needs.discover.outputs.agents != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        agent: ${{ fromJSON(needs.discover.outputs.agents) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -e .
+
+      - name: Run agent
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+        run: python -m auto_project run ${{ matrix.agent }}
+
+      - name: Commit state
+        run: |
+          git config user.name "agent-bot"
+          git config user.email "agent-bot@users.noreply.github.com"
+          git add state/ || true
+          if git diff --staged --quiet; then
+            echo "no state changes"
+            exit 0
+          fi
+          git commit -m "state(${{ matrix.agent }}): update [skip ci]"
+          # Parallel matrix jobs race on push; rebase + retry handles it.
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main && git push && exit 0
+            echo "push attempt $i failed, retrying..."
+            sleep $((RANDOM % 5 + 2))
+          done
+          echo "push failed after 5 attempts" >&2
+          exit 1
