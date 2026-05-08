@@ -22,11 +22,13 @@ examples/
 ## Stable API (the contract for projects)
 
 ```python
-from auto_project import llm, state
+from auto_project import llm, state, notify
 
 llm.call(prompt: str, system: str | None = None, timeout: int = 60) -> str
 state.get(agent: str, key: str, default=None) -> Any
 state.set(agent: str, key: str, value: Any) -> None
+notify.telegram(message: str, parse_mode: str = "HTML") -> bool   # silent no-op if TELEGRAM_* env unset
+notify.escape(text: str) -> str
 ```
 
 The runner expects each agent file at `<cwd>/agents/<name>.py` to expose
@@ -74,6 +76,15 @@ in parallel, and commits state changes back.
 - `CEREBRAS_API_KEY` — https://cloud.cerebras.ai (fallback, optional)
 
 The router tries them in that order and skips any without a key.
+
+## Optional: Telegram notifications
+
+Add these two secrets to enable agent → phone alerts via `notify.telegram(...)`:
+
+- `TELEGRAM_BOT_TOKEN` — talk to [@BotFather](https://t.me/botfather) → `/newbot`
+- `TELEGRAM_CHAT_ID` — your private chat ID (send `/start` to the new bot, then check `https://api.telegram.org/bot<token>/getUpdates`)
+
+Without these, `notify.telegram()` is a silent no-op so agent code stays portable.
 
 ## Local dev
 

@@ -21,13 +21,22 @@ htmlcov/
 .env
 .env.local
 
+# secret-bearing files — never commit
+keys.txt
+*credentials*
+*secret*
+*.key
+*.pem
+
 # local notes / transcripts (not part of the framework)
 httpswww.youtube.com*.txt
 *.transcript.txt
 
 # private projects living as nested repos under this folder
-# (each has its own .git pointing to a private GitHub repo)
-*_project/
+# (each has its own .git pointing to a private GitHub repo).
+# Leading slash anchors to repo root so this doesn't accidentally match
+# `src/auto_project/` etc.
+/*_project/
 
 .vscode/
 .idea/

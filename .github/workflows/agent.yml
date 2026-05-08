@@ -18,7 +18,7 @@ jobs:
       - run: pip install -e .
       - name: Import smoke test
         run: |
-          python -c "from auto_project import llm, state; print('framework imports OK')"
+          python -c "from auto_project import llm, state, notify; print('framework imports OK')"
       - name: Mock-LLM end-to-end
         env:
           MOCK_LLM: '1'
