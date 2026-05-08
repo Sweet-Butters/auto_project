@@ -31,6 +31,7 @@ keys.txt
 # local notes / transcripts (not part of the framework)
 httpswww.youtube.com*.txt
 *.transcript.txt
+WHILE_YOU_WERE_AWAY.md
 
 # private projects living as nested repos under this folder
 # (each has its own .git pointing to a private GitHub repo).
