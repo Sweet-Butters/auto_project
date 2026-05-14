@@ -12,6 +12,7 @@ Commands (sent to the bot in Telegram):
 - /help
 - /agents [<repo>]
 - /run [<repo>] <agent>
+- /add [<repo>] <youtube-url>
 - /status [<repo>]
 """
 
@@ -36,6 +37,7 @@ ALLOWED_REPOS = set(
     if r.strip()
 )
 WORKFLOW_FILE = os.environ.get("WORKFLOW_FILE", "agents.yml")
+ADD_VIDEO_WORKFLOW = os.environ.get("ADD_VIDEO_WORKFLOW", "add_video.yml")
 
 
 def _tg_send(text: str, parse_mode: str = "HTML") -> None:
@@ -82,6 +84,7 @@ def cmd_help() -> str:
         "<code>/help</code>\n"
         "<code>/agents [&lt;repo&gt;]</code>\n"
         "<code>/run [&lt;repo&gt;] &lt;agent&gt;</code>\n"
+        "<code>/add [&lt;repo&gt;] &lt;youtube-url&gt;</code>\n"
         "<code>/status [&lt;repo&gt;]</code>\n\n"
         f"Default repo: <code>{DEFAULT_REPO or '(none)'}</code>\n"
         f"Allowed repos: {', '.join(sorted(ALLOWED_REPOS)) or '(none)'}"
@@ -129,6 +132,23 @@ def cmd_run(repo_arg: Optional[str], agent: str) -> str:
     return f"dispatch failed {r.status_code}: {r.text[:200]}"
 
 
+def cmd_add(repo_arg: Optional[str], url: str) -> str:
+    full = resolve_repo(repo_arg)
+    if not full:
+        return f"unknown or disallowed repo: <code>{repo_arg}</code>"
+    r = _gh(
+        "POST",
+        f"/repos/{full}/actions/workflows/{ADD_VIDEO_WORKFLOW}/dispatches",
+        {"ref": "main", "inputs": {"url": url}},
+    )
+    if r.status_code in (200, 201, 204):
+        return (
+            f"✅ queued <code>add_video</code> on <code>{full}</code>\n"
+            f"url: <code>{url[:80]}</code>\n→ check with /status"
+        )
+    return f"dispatch failed {r.status_code}: {r.text[:200]}"
+
+
 def cmd_status(repo_arg: Optional[str]) -> str:
     full = resolve_repo(repo_arg)
     if not full:
@@ -172,6 +192,16 @@ def handle(text: str) -> Optional[str]:
         if len(args) >= 2:
             return cmd_run(args[0], args[1])
         return "usage: <code>/run [&lt;repo&gt;] &lt;agent&gt;</code>"
+    if cmd == "add":
+        if len(args) == 1:
+            return cmd_add(None, args[0])
+        if len(args) >= 2:
+            # First arg is a repo only if it doesn't look like a URL/video id.
+            looks_like_url = args[0].startswith(("http://", "https://"))
+            if looks_like_url:
+                return cmd_add(None, args[0])
+            return cmd_add(args[0], args[1])
+        return "usage: <code>/add [&lt;repo&gt;] &lt;youtube-url&gt;</code>"
     if cmd == "status":
         return cmd_status(args[0] if args else None)
     return f"unknown command: <code>/{cmd}</code> — try /help"
