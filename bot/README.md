@@ -29,6 +29,40 @@ allowed repos from a Telegram chat. Deployed once per user.
 | `DEFAULT_REPO` | e.g. `Sweet-Butters/Yorg_project` (optional) |
 | `ALLOWED_REPOS` | comma-separated; defaults to `DEFAULT_REPO` |
 | `WORKFLOW_FILE` | name of workflow file to dispatch (default `agents.yml`) |
+| `ADD_VIDEO_WORKFLOW` | workflow dispatched by `/add` (default `add_video.yml`) |
+| `URL_ROUTES` | JSON array of URL-pattern → workflow routes. Optional (see below) |
+
+### URL routing (since v0.4.0)
+
+Any non-command message that contains a URL is matched against `URL_ROUTES`.
+The first matching route fires `workflow_dispatch` on the configured repo,
+with the URL passed as the named workflow input.
+
+This complements `/add`: `/add` is an explicit command, `URL_ROUTES` is
+automatic and supports multiple destinations (e.g. YouTube → summarizer,
+arXiv → paper-reader, etc.).
+
+Example — forward YouTube links to a summarizer in another repo:
+
+```yaml
+URL_ROUTES: |
+  [
+    {
+      "pattern": "(?:youtube\\.com/watch|youtu\\.be/)",
+      "repo": "Sweet-Butters/Notes_project",
+      "workflow": "summarize-video.yml",
+      "input_key": "url",
+      "extra_inputs": {"display_lang": "ko"}
+    }
+  ]
+```
+
+Fields per route:
+- `pattern` — regex matched against the extracted URL (`re.search` semantics).
+- `repo` — target `owner/repo`; must also be present in `ALLOWED_REPOS`.
+- `workflow` — workflow filename (e.g. `summarize-video.yml`).
+- `input_key` — workflow input name that receives the URL.
+- `extra_inputs` (optional) — extra inputs merged into the dispatch payload.
 
 ## Deploy (one-shot)
 

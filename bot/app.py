@@ -14,11 +14,19 @@ Commands (sent to the bot in Telegram):
 - /run [<repo>] <agent>
 - /add [<repo>] <youtube-url>
 - /status [<repo>]
+
+Non-command URL routing:
+- Any non-command message is scanned for a URL. If the URL matches a
+  pattern in URL_ROUTES, the configured workflow is dispatched on the
+  configured repo with the URL passed as `input_key`. Lets you share a
+  link to the bot and have the right workflow run with no prefix typing.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import re
 from typing import Optional
 
 import requests
@@ -38,6 +46,14 @@ ALLOWED_REPOS = set(
 )
 WORKFLOW_FILE = os.environ.get("WORKFLOW_FILE", "agents.yml")
 ADD_VIDEO_WORKFLOW = os.environ.get("ADD_VIDEO_WORKFLOW", "add_video.yml")
+
+# URL_ROUTES: JSON array of {pattern, repo, workflow, input_key, extra_inputs?}.
+# - pattern: regex matched against the extracted URL (re.search semantics).
+# - repo: target full "owner/repo"; must also be present in ALLOWED_REPOS.
+# - workflow: workflow filename (e.g. "summarize-video.yml").
+# - input_key: name of the workflow input that receives the URL.
+# - extra_inputs (optional): dict of additional workflow inputs.
+URL_ROUTES = json.loads(os.environ.get("URL_ROUTES", "[]"))
 
 
 def _tg_send(text: str, parse_mode: str = "HTML") -> None:
@@ -79,6 +95,13 @@ def resolve_repo(arg: Optional[str]) -> Optional[str]:
 
 
 def cmd_help() -> str:
+    routes_summary = (
+        "\n".join(
+            f"• <code>{r['pattern']}</code> → <code>{r['repo']}/{r['workflow']}</code>"
+            for r in URL_ROUTES
+        )
+        or "(none)"
+    )
     return (
         "<b>Available commands</b>\n"
         "<code>/help</code>\n"
@@ -86,8 +109,10 @@ def cmd_help() -> str:
         "<code>/run [&lt;repo&gt;] &lt;agent&gt;</code>\n"
         "<code>/add [&lt;repo&gt;] &lt;youtube-url&gt;</code>\n"
         "<code>/status [&lt;repo&gt;]</code>\n\n"
+        "Non-command messages with a URL are auto-routed if a pattern matches.\n\n"
         f"Default repo: <code>{DEFAULT_REPO or '(none)'}</code>\n"
-        f"Allowed repos: {', '.join(sorted(ALLOWED_REPOS)) or '(none)'}"
+        f"Allowed repos: {', '.join(sorted(ALLOWED_REPOS)) or '(none)'}\n"
+        f"URL routes:\n{routes_summary}"
     )
 
 
@@ -174,10 +199,55 @@ def cmd_status(repo_arg: Optional[str]) -> str:
     return f"<b>Recent runs ({full})</b>\n" + "\n".join(lines)
 
 
+_URL_RE = re.compile(r"https?://\S+")
+
+
+def _extract_url(text: str) -> Optional[str]:
+    """First URL in `text`, trimmed of trailing punctuation Telegram often appends."""
+    m = _URL_RE.search(text)
+    if not m:
+        return None
+    return m.group(0).rstrip(".,;:!?)]>}'\"")
+
+
+def cmd_route_url(url: str, route: dict) -> str:
+    repo = route["repo"]
+    workflow = route["workflow"]
+    input_key = route.get("input_key", "url")
+    if repo not in ALLOWED_REPOS:
+        return f"⚠️ route repo not in ALLOWED_REPOS: <code>{repo}</code>"
+    inputs = {input_key: url}
+    inputs.update(route.get("extra_inputs", {}))
+    r = _gh(
+        "POST",
+        f"/repos/{repo}/actions/workflows/{workflow}/dispatches",
+        {"ref": "main", "inputs": inputs},
+    )
+    if r.status_code in (200, 201, 204):
+        return (
+            f"✅ dispatched <code>{workflow}</code> on <code>{repo}</code>\n"
+            f"→ <code>{url[:80]}</code>"
+        )
+    return f"dispatch failed {r.status_code}: {r.text[:200]}"
+
+
+def handle_url(text: str) -> Optional[str]:
+    """Match a URL in `text` against URL_ROUTES; return reply if dispatched."""
+    url = _extract_url(text)
+    if not url:
+        return None
+    for route in URL_ROUTES:
+        if re.search(route["pattern"], url):
+            return cmd_route_url(url, route)
+    return None
+
+
 def handle(text: str) -> Optional[str]:
     text = (text or "").strip()
-    if not text or not text.startswith("/"):
+    if not text:
         return None
+    if not text.startswith("/"):
+        return handle_url(text)
     parts = text.split()
     cmd = parts[0].lstrip("/").split("@", 1)[0].lower()  # strip @botname suffix
     args = parts[1:]
@@ -213,6 +283,10 @@ def health():
         "status": "ok",
         "default_repo": DEFAULT_REPO,
         "allowed_repos": sorted(ALLOWED_REPOS),
+        "url_routes": [
+            {"pattern": r["pattern"], "repo": r["repo"], "workflow": r["workflow"]}
+            for r in URL_ROUTES
+        ],
     }
 
 
