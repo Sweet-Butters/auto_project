@@ -47,12 +47,15 @@ ALLOWED_REPOS = set(
 WORKFLOW_FILE = os.environ.get("WORKFLOW_FILE", "agents.yml")
 ADD_VIDEO_WORKFLOW = os.environ.get("ADD_VIDEO_WORKFLOW", "add_video.yml")
 
-# URL_ROUTES: JSON array of {pattern, repo, workflow, input_key, extra_inputs?}.
-# - pattern: regex matched against the extracted URL (re.search semantics).
-# - repo: target full "owner/repo"; must also be present in ALLOWED_REPOS.
-# - workflow: workflow filename (e.g. "summarize-video.yml").
-# - input_key: name of the workflow input that receives the URL.
-# - extra_inputs (optional): dict of additional workflow inputs.
+# URL_ROUTES: JSON array of route entries with these fields:
+# - pattern (str)            : regex matched against the extracted URL (re.search semantics).
+# - repo (str)               : target "owner/repo"; must also be in ALLOWED_REPOS.
+# - workflow (str)           : primary workflow filename (e.g. "summarize-video.yml").
+# - input_key (str)          : workflow input name that receives the URL.
+# - extra_inputs (dict)      : OPTIONAL extra workflow inputs to merge.
+# - fallback_workflow (str)  : OPTIONAL workflow used when no self-hosted runner is online.
+#                              Enables hybrid pipelines where a fast on-prem path is preferred
+#                              but a hosted-runner path takes over while the on-prem box is offline.
 URL_ROUTES = json.loads(os.environ.get("URL_ROUTES", "[]"))
 
 
@@ -210,12 +213,39 @@ def _extract_url(text: str) -> Optional[str]:
     return m.group(0).rstrip(".,;:!?)]>}'\"")
 
 
+def _has_online_selfhosted_runner(repo: str) -> bool:
+    """Check whether `repo` has at least one online self-hosted runner.
+
+    Used to decide between the primary (self-hosted) workflow and the
+    fallback (GHA-hosted) workflow. Network failures are treated as
+    "online unknown — assume yes" so we don't unnecessarily fall back.
+    """
+    try:
+        r = _gh("GET", f"/repos/{repo}/actions/runners")
+    except Exception:
+        return True  # network fail: assume online to avoid spurious fallback
+    if not r.ok:
+        return True
+    runners = r.json().get("runners", []) or []
+    return any(rn.get("status") == "online" for rn in runners)
+
+
 def cmd_route_url(url: str, route: dict) -> str:
     repo = route["repo"]
-    workflow = route["workflow"]
+    primary = route["workflow"]
+    fallback = route.get("fallback_workflow")
     input_key = route.get("input_key", "url")
     if repo not in ALLOWED_REPOS:
         return f"⚠️ route repo not in ALLOWED_REPOS: <code>{repo}</code>"
+
+    # Hybrid pick: if a fallback workflow is configured AND no self-hosted
+    # runner is online for this repo, dispatch the fallback instead.
+    workflow = primary
+    used_fallback = False
+    if fallback and not _has_online_selfhosted_runner(repo):
+        workflow = fallback
+        used_fallback = True
+
     inputs = {input_key: url}
     inputs.update(route.get("extra_inputs", {}))
     r = _gh(
@@ -224,8 +254,9 @@ def cmd_route_url(url: str, route: dict) -> str:
         {"ref": "main", "inputs": inputs},
     )
     if r.status_code in (200, 201, 204):
+        suffix = " <i>(self-hosted runner offline — using GHA fallback)</i>" if used_fallback else ""
         return (
-            f"✅ dispatched <code>{workflow}</code> on <code>{repo}</code>\n"
+            f"✅ dispatched <code>{workflow}</code> on <code>{repo}</code>{suffix}\n"
             f"→ <code>{url[:80]}</code>"
         )
     return f"dispatch failed {r.status_code}: {r.text[:200]}"

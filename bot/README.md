@@ -60,9 +60,32 @@ URL_ROUTES: |
 Fields per route:
 - `pattern` — regex matched against the extracted URL (`re.search` semantics).
 - `repo` — target `owner/repo`; must also be present in `ALLOWED_REPOS`.
-- `workflow` — workflow filename (e.g. `summarize-video.yml`).
+- `workflow` — primary workflow filename (e.g. `summarize-video.yml`).
 - `input_key` — workflow input name that receives the URL.
 - `extra_inputs` (optional) — extra inputs merged into the dispatch payload.
+- `fallback_workflow` (optional, since v0.6.0) — workflow used when no self-hosted runner is online for `repo`. Before dispatch, the bot calls `GET /repos/<repo>/actions/runners` and picks the fallback if every registered runner is offline (or none are registered). Lets you keep a self-hosted fast path while still serving requests while that machine is offline.
+
+### Hybrid example (v0.6.0+)
+
+```yaml
+URL_ROUTES: |
+  [
+    {
+      "pattern": "(?:youtube\\.com/watch|youtu\\.be/)",
+      "repo": "Sweet-Butters/youtube-to-obsidian",
+      "workflow": "summarize-video.yml",
+      "fallback_workflow": "summarize-video-fallback.yml",
+      "input_key": "url",
+      "extra_inputs": {"display_lang": "ko"}
+    }
+  ]
+```
+
+With this config:
+- Self-hosted runner online → `summarize-video.yml` is dispatched (fast, residential IP, Whisper available).
+- Self-hosted runner offline / unregistered → `summarize-video-fallback.yml` is dispatched on GHA-hosted runners (uses a WebShare proxy to bypass YouTube's cloud-IP block).
+
+The Telegram reply annotates which path was used.
 
 ## Deploy (one-shot)
 
