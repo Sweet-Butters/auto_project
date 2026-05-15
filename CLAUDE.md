@@ -24,12 +24,21 @@ bot/                     # standalone Cloud Run service (FastAPI)
 
 ```python
 from auto_project import llm, state, notify
+from auto_project.youtube import categories
 
 llm.call(prompt: str, system: str | None = None, timeout: int = 60) -> str
 state.get(agent: str, key: str, default=None) -> Any
 state.set(agent: str, key: str, value: Any) -> None
 notify.telegram(message: str, parse_mode: str = "HTML") -> bool
 notify.escape(text: str) -> str
+
+# v0.5.0 — YouTube helpers (single source of category mapping)
+categories.YT_CATEGORY_MAP: dict[int, tuple[str, str]]   # full Data-API table
+categories.KR_TRENDING_IDS: list[int]                    # curated subset for KR trending crawls
+categories.lookup(category_id) -> tuple[str, str]        # (en, ko), with fallback
+categories.label(category_id, lang="ko"|"en") -> str
+categories.all_ids() -> list[int]
+categories.filter_known(ids) -> list[int]                # drop unknown/non-numeric
 ```
 
 Adding parameters with defaults is fine. Renaming/removing requires a major bump.
